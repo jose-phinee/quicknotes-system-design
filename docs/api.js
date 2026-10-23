@@ -2,8 +2,14 @@
 // Talks to the JSONPlaceholder practice API using fetch, async/await and
 // try/catch/finally.
 //
-// Task note: JSONPlaceholder is a fake practice API, so this stage only
-// uses it to practise fetch, async/await and try/catch/finally.
+// IMPORTANT: JSONPlaceholder is a FAKE API. It accepts POST and DELETE requests
+// and answers as if they worked (for example status 201 with the id 101), but it
+// never really saves or deletes anything. Every new note also gets the same id,
+// 101. So this page keeps its own list of notes (the `notes` array) and updates
+// it after each successful response. That list is what the user sees. Each note
+// also gets a `localId` that is unique on this page, so we can delete the right
+// note even when several created notes share the id 101. Reloading the page or
+// clicking "Load notes" again shows the server's original 10 notes.
 
 const API_URL = "https://jsonplaceholder.typicode.com/posts";
 const MAX_TITLE_LENGTH = 100;
@@ -19,6 +25,8 @@ const submitBtn = document.querySelector("#submit-btn");
 
 // ---------- State ----------
 let notes = [];
+let nextLocalId = 1;
+const deleting = new Set(); // localIds of notes with a DELETE request running
 
 // ---------- Status messages ----------
 // type is "loading", "success" or "error" (styled in style.css)
@@ -60,6 +68,10 @@ function createNote(note) {
   });
 }
 
+function deleteNote(id) {
+  return request(`${API_URL}/${id}`, { method: "DELETE" });
+}
+
 // ---------- Drawing the list (textContent only) ----------
 function renderNotes() {
   notesList.replaceChildren();
@@ -84,6 +96,16 @@ function renderNotes() {
 
     item.append(title, body);
 
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.classList.add("delete-btn");
+    deleteButton.textContent = "Delete";
+    deleteButton.disabled = deleting.has(note.localId);
+    deleteButton.addEventListener("click", function () {
+      handleDelete(note);
+    });
+    item.appendChild(deleteButton);
+
     notesList.appendChild(item);
   });
 }
@@ -95,7 +117,9 @@ async function handleLoad() {
 
   try {
     const result = await getNotes();
-    notes = result.data;
+    notes = result.data.map(function (note) {
+      return { ...note, localId: nextLocalId++ };
+    });
     renderNotes();
 
     if (notes.length === 0) {
@@ -141,7 +165,7 @@ async function handleSubmit(event) {
 
   try {
     const result = await createNote({ title: title, body: body, userId: 1 });
-    notes.unshift(result.data);
+    notes.unshift({ ...result.data, localId: nextLocalId++ });
     renderNotes();
     showStatus(`Note created (status ${result.status}, id ${result.data.id}).`, "success");
     form.reset();
@@ -150,6 +174,27 @@ async function handleSubmit(event) {
     showStatus(friendlyError(error), "error");
   } finally {
     submitBtn.disabled = false;
+  }
+}
+
+// ---------- DELETE: remove a note ----------
+async function handleDelete(note) {
+  deleting.add(note.localId);
+  renderNotes(); // shows this note's Delete button as disabled
+  showStatus(`Deleting note ${note.id}...`, "loading");
+
+  try {
+    await deleteNote(note.id);
+    // Remove by localId, not id: created notes all share the id 101
+    notes = notes.filter(function (item) {
+      return item.localId !== note.localId;
+    });
+    showStatus(`Note ${note.id} deleted.`, "success");
+  } catch (error) {
+    showStatus(friendlyError(error), "error");
+  } finally {
+    deleting.delete(note.localId);
+    renderNotes();
   }
 }
 
